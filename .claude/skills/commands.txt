@@ -1,0 +1,105 @@
+/add-ai-tool
+/add-endpoint
+/add-entity
+/ef-migration
+/pricing-rule
+/react-feature
+/seed-menu
+/ship-pr
+
+PIZZA STORE — CLAUDE CODE SKILLS QUICK REFERENCE
+=================================================
+Location: .claude/skills/<skill-name>/SKILL.md
+
+How to use
+----------
+- Type /<skill-name> followed by your arguments in plain words, e.g.
+    /add-entity Coupon with Code, Percent, ExpiresAt
+- Or just describe the task ("add a Coupon table") and Claude picks the skill.
+- Skills take free-text arguments. "Required" below means Claude will ask
+  for it if you leave it out; "Optional" items have sensible defaults.
+
+
+1. /add-entity
+   Purpose : Add a new table/business concept end to end
+             (Domain -> EF config -> migration -> service -> endpoint -> client -> UI -> tests)
+   Required: Entity name
+             Fields with types and nullability
+   Optional: Relationships (e.g. "belongs to Store", "many Toppings")
+             Access roles (Customer / StoreStaff / Admin) — default: Admin write, Customer read
+             Whether UI is needed — default: ask
+   Example : /add-entity DeliveryZone — Name string, StoreId FK to Store,
+             MaxDistanceKm decimal, Fee decimal; Admin manages, customers read
+
+2. /ef-migration
+   Purpose : Create, review, and apply an EF Core migration safely
+   Required: What changed (or a migration name in PascalCase)
+   Optional: "script" to produce an idempotent SQL script instead of applying
+             "remove" to roll back the last unmerged migration
+   Example : /ef-migration AddDeliveryZoneTable
+             /ef-migration script for production
+
+3. /add-endpoint
+   Purpose : Add or change a Minimal API route with validation, auth, tests
+   Required: HTTP method + route
+             What it does / which service method it calls
+   Optional: Role/policy — default: authenticated Customer
+             Request and response shape
+             "polled" to add ETag + 304 support
+   Example : /add-endpoint GET /api/orders/{orderNumber}/status — Customer, polled
+
+4. /add-ai-tool
+   Purpose : Give the support chat assistant a new capability
+   Required: Tool name
+             What it looks up or does
+             Read or write (write tools need a confirmation turn)
+   Optional: Parameters (never customerId)
+             Whether it shows a card in the chat widget
+   Example : /add-ai-tool GetEstimatedDeliveryTime(orderNumber) — read, show order card
+
+5. /react-feature
+   Purpose : Build or change frontend UI in web/
+   Required: Feature/page name
+             What the user should be able to do
+   Optional: Route path
+             Backend endpoints it uses (regenerates client if changed)
+             "e2e" to add/update a Playwright test
+   Example : /react-feature order-tracking page at /orders/:orderNumber with
+             live status timeline, e2e
+
+6. /pricing-rule
+   Purpose : Add or change price calculation — modifiers, deals, fees, tax, rounding
+   Required: The rule or change
+   Optional: Deal details — code, type (% off / fixed / BOGO / combo / free delivery),
+             value, min order, valid from/to, order types, stackable
+             Stores it applies to — default: all
+   Example : /pricing-rule TUESDAY50 — 50% off Large pizzas, Tuesdays only,
+             Carryout, min order $20, not stackable
+
+7. /seed-menu
+   Purpose : Update menu seed data (categories, items, sizes, crusts, toppings, deals, stores)
+   Required: What to add, change, or retire
+   Optional: Prices, veg flag, image file, category
+             "reset" to drop and reseed the LOCAL database only
+   Example : /seed-menu add Paneer Tikka pizza, veg, Pizzas category,
+             base 13.49, image menu/paneer-tikka.webp
+             /seed-menu reset
+
+8. /ship-pr
+   Purpose : Verify, commit, push, and open a PR on deeparajasabeson/pizza-store
+   Required: GitHub issue number (Claude asks if not given)
+   Optional: Branch type — feature / fix / chore / ai (default: feature)
+             "draft" to open as a draft PR
+             Reviewers to request
+   Example : /ship-pr #42 draft
+   Note    : Claude shows the diff and commit message and waits for your OK
+             before committing and again before pushing. It never merges or
+             pushes to main.
+
+
+Typical flows
+-------------
+New feature  : /add-entity -> (/ef-migration runs inside) -> /add-endpoint -> /react-feature -> /ship-pr
+New chat tool: /add-ai-tool -> /react-feature (if a card is needed) -> /ship-pr
+New promo    : /seed-menu (deal data) -> /pricing-rule (if a new deal type) -> /ship-pr
+Menu change  : /seed-menu -> /ship-pr
