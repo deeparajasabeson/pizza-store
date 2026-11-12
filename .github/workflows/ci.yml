@@ -36,7 +36,7 @@ jobs:
       DOTNET_CLI_TELEMETRY_OPTOUT: true
       ConnectionStrings__PizzaStoreTests: Server=localhost,1433;User Id=sa;Password=Ci_${{ github.run_id }}_Sql!;TrustServerCertificate=True
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
 
       - uses: actions/setup-dotnet@v5
         with:
@@ -74,7 +74,7 @@ jobs:
       run:
         working-directory: web
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
 
       - uses: actions/setup-node@v5
         with:
