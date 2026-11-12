@@ -11,6 +11,17 @@ updates:
     groups:
       dotnet-minor-patch:
         update-types: [minor, patch]
+    # The solution targets .NET 10 (global.json). Platform packages version with the runtime,
+    # so a new major (e.g. 11.x) means a .NET upgrade, which is done deliberately, not by Dependabot.
+    ignore:
+      - dependency-name: "Microsoft.AspNetCore.*"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "Microsoft.EntityFrameworkCore*"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "Microsoft.Extensions.*"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "dotnet-ef"
+        update-types: ["version-update:semver-major"]
 
   - package-ecosystem: npm
     directory: /web
@@ -23,6 +34,10 @@ updates:
     groups:
       npm-minor-patch:
         update-types: [minor, patch]
+    ignore:
+      # Must match the Node major used by the app and CI (24).
+      - dependency-name: "@types/node"
+        update-types: ["version-update:semver-major"]
 
   - package-ecosystem: github-actions
     directory: /
