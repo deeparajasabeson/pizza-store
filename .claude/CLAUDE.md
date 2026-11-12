@@ -6,7 +6,16 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Read this fully before making changes.
 
-> **Status: not built yet.** Only `.claude/` exists so far (this file, `settings.json`, and the skills). The solution structure, CI workflows, CODEOWNERS, and templates below describe the **target** layout. When a task needs one of these, create it to match this document rather than assuming it exists. The folder is not yet a git repository: run `git init` and add the `origin` remote before following the git workflow. Remove this note once the solution is in place.
+> **Status: scaffolded, no features yet.** The solution, projects, references, `web/` app, test projects, `.github/` (CI, templates, CODEOWNERS, Dependabot) and `.gitignore` exist and build cleanly. No entities, endpoints (other than `/health`), AI tools, migrations, or UI features exist yet. `deploy.yml` and Playwright are not set up. Remove this note once the first features land.
+
+**Scaffold facts that aren't obvious from the docs below:**
+- SDK pinned in `global.json` (10.0.4xx). Shared MSBuild settings (net10.0, C# 14, nullable, warnings-as-errors, analyzers, NuGet audit) live in `Directory.Build.props`, so don't repeat them in `.csproj` files. A vulnerable package fails the build.
+- `dotnet-ef` is a local tool (`dotnet-tools.json`). Run `dotnet tool restore` once after cloning.
+- Building `PizzaStore.Api` writes the OpenAPI document to `web/openapi/openapi.json` (`Microsoft.Extensions.ApiDescription.Server`). `npm run gen:api` turns that file into `web/src/api/schema.d.ts`, so the API doesn't need to be running. Commit both files; CI fails if either is stale.
+- `web/` uses TypeScript 7, but openapi-typescript needs TypeScript 5, so `gen:api` runs it through `npx` with pinned versions instead of a devDependency.
+- `web/` lints with **oxlint** (the Vite template default), not ESLint.
+- Test assertions use **Shouldly** (FluentAssertions 8+ needs a commercial license). xUnit is v2.
+- Architecture tests (`tests/*/ArchitectureTests.cs`) enforce the dependency rule and stop `PizzaStore.AI` from referencing EF Core or Infrastructure.
 
 Step-by-step workflows live in `.claude/skills/`: `add-entity`, `add-endpoint`, `add-ai-tool`, `ef-migration`, `pricing-rule`, `react-feature`, `seed-menu`, `ship-pr` (quick reference in `.claude/skills/commands.txt`). Use the matching skill instead of improvising the steps.
 
@@ -45,7 +54,7 @@ PizzaStore.sln
 │   └── vite.config.ts
 ├── tests/
 │   ├── PizzaStore.UnitTests/
-│   ├── PizzaStore.IntegrationTests/ # WebApplicationFactory + Testcontainers SQL Server
+│   ├── PizzaStore.IntegrationTests/ # WebApplicationFactory + per-run test DB on local SQL Server
 │   └── PizzaStore.AI.Tests/         # Tool-calling and guardrail tests
 └── db/
     └── seed/                        # Menu seed data (JSON)
@@ -55,11 +64,12 @@ PizzaStore.sln
 
 ## Common commands
 
-Commands are written for bash (Git Bash on Windows). In PowerShell, replace `&&` with `; if ($?) { ... }` and use double quotes for the `docker run` password.
+Commands are written for bash (Git Bash on Windows). In PowerShell, replace `&&` with `; if ($?) { ... }`.
 
 ```bash
 # Backend
 dotnet restore
+dotnet tool restore                                 # installs local dotnet-ef
 dotnet build
 dotnet run --project src/PizzaStore.Api            # https://localhost:7001
 dotnet test
@@ -74,8 +84,9 @@ dotnet test tests/PizzaStore.AI.Tests --filter "Category=Evals"      # eval set 
 dotnet test --collect:"XPlat Code Coverage"
 
 # EF Core migrations (run from repo root)
-dotnet ef migrations add <Name> -p src/PizzaStore.Infrastructure -s src/PizzaStore.Api
+dotnet ef migrations add <Name> -p src/PizzaStore.Infrastructure -s src/PizzaStore.Api -o Persistence/Migrations
 dotnet ef database update -p src/PizzaStore.Infrastructure -s src/PizzaStore.Api
+dotnet ef migrations has-pending-model-changes -p src/PizzaStore.Infrastructure -s src/PizzaStore.Api
 
 # Frontend
 cd web
@@ -86,13 +97,23 @@ npm run lint
 npm run test                                        # Vitest
 npx vitest run src/features/cart                    # single folder/file
 npx vitest run src/features/cart -t "applies deal"  # single test by name
-npx vitest run --coverage
-npx playwright test e2e/checkout.spec.ts            # single E2E spec
-npm run gen:api                                     # Regenerate client from /openapi/v1.json
+npm run coverage                                    # Vitest with v8 coverage
+npx playwright test e2e/checkout.spec.ts            # single E2E spec (Playwright not installed yet)
+npm run gen:api                                     # web/openapi/openapi.json → src/api/schema.d.ts (run `dotnet build` first)
 
-# Local SQL Server
-docker run -e ACCEPT_EULA=Y -e MSSQL_SA_PASSWORD='Your_strong_pw1' -p 1433:1433 -d mcr.microsoft.com/mssql/server:2022-latest
+# Local SQL Server: set the connection string once in User Secrets (never in appsettings.json)
+dotnet user-secrets set "ConnectionStrings:PizzaStore" "Server=DeepaSteele2025;Database=PizzaStore;Trusted_Connection=True;TrustServerCertificate=True;MultipleActiveResultSets=True" --project src/PizzaStore.Api
+dotnet ef database update -p src/PizzaStore.Infrastructure -s src/PizzaStore.Api   # creates the PizzaStore database
 ```
+
+### Database: local SQL Server instance (no Docker)
+
+- All local work uses the SQL Server installed on this machine: default instance **`DeepaSteele2025`** (SQL Server 2025, v17.x), always running, **Windows authentication** (no username/password). Connect over shared memory; TCP/IP doesn't need to be enabled. Don't use Docker, Testcontainers, or LocalDB, and never use the `sa` login.
+- `Server=.` is an equivalent alias if the machine is renamed.
+- Databases on the instance:
+  - `PizzaStore`: dev database, created by migrations and filled by the seeder.
+  - `PizzaStore_IntegrationTests_<run-id>`: created by the integration-test fixture at the start of a run, migrated with `Database.MigrateAsync()`, and dropped at the end. Tests never touch `PizzaStore`.
+- Integration tests read `ConnectionStrings:PizzaStoreTests` (User Secrets or env var `ConnectionStrings__PizzaStoreTests`). When it isn't set, they fall back to `Server=DeepaSteele2025;Trusted_Connection=True;TrustServerCertificate=True` and add the per-run database name.
 
 Always run `dotnet build` and `dotnet test` (and `npm run lint && npm run test` for frontend changes) before declaring a task done.
 
@@ -212,7 +233,7 @@ Both endpoints take `{ sessionId, message }`. Chat history is loaded server-side
 ## Testing expectations
 
 - New Application logic → unit tests (xUnit + FluentAssertions or Shouldly, NSubstitute).
-- New endpoints → integration tests via `WebApplicationFactory` against Testcontainers SQL Server.
+- New endpoints → integration tests via `WebApplicationFactory` against the per-run test database on the local SQL Server (see *Database*).
 - Order state machine → exhaustive transition tests.
 - Pricing (sizes, crusts, toppings, deals, tax) → table-driven tests.
 - Frontend → Vitest + React Testing Library for components; Playwright for checkout and order-tracking E2E.
@@ -268,7 +289,7 @@ Both endpoints take `{ sessionId, message }`. Chat history is loaded server-side
 
 ### CI/CD (GitHub Actions)
 - `.github/workflows/ci.yml` runs on PRs and on pushes to `main`:
-  - `dotnet build` and `dotnet test` (integration tests use Testcontainers SQL Server), failing below the coverage floor in *Code conventions*
+  - `dotnet build` and `dotnet test`, failing below the coverage floor in *Code conventions*. CI has no access to the local instance, so the workflow provides a SQL Server (e.g. a `services: mssql` job service on the runner) and sets `ConnectionStrings__PizzaStoreTests`.
   - `npm ci`, `npm run lint`, `npm run test`, and `npm run build` in `web/`
   - A check that the EF model has no pending changes: `dotnet ef migrations has-pending-model-changes`
 - `.github/workflows/deploy.yml` deploys from `main` to Azure. It authenticates with OIDC (`azure/login` federated credentials), not stored passwords.

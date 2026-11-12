@@ -1,0 +1,94 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    name: Backend (.NET)
+    runs-on: ubuntu-latest
+    # Developers use their local SQL Server instance; CI can't reach it, so it gets its own
+    # throwaway container. The password is per-run (not a stored secret) and never leaves the runner.
+    services:
+      mssql:
+        image: mcr.microsoft.com/mssql/server:2022-latest
+        env:
+          ACCEPT_EULA: "Y"
+          MSSQL_SA_PASSWORD: Ci_${{ github.run_id }}_Sql!
+        ports:
+          - 1433:1433
+        options: >-
+          --health-cmd "/opt/mssql-tools18/bin/sqlcmd -C -S localhost -U sa -P $MSSQL_SA_PASSWORD -Q 'SELECT 1' -b"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DOTNET_NOLOGO: true
+      DOTNET_CLI_TELEMETRY_OPTOUT: true
+      ConnectionStrings__PizzaStoreTests: Server=localhost,1433;User Id=sa;Password=Ci_${{ github.run_id }}_Sql!;TrustServerCertificate=True
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-dotnet@v5
+        with:
+          global-json-file: global.json
+
+      - name: Restore
+        run: |
+          dotnet restore
+          dotnet tool restore
+
+      - name: Build
+        run: dotnet build --no-restore -c Release
+
+      - name: OpenAPI document is up to date
+        run: git diff --exit-code -- web/openapi/openapi.json || (echo "::error::web/openapi/openapi.json is stale. Run 'dotnet build' and commit it." && exit 1)
+
+      - name: Test
+        run: dotnet test --no-build -c Release --collect:"XPlat Code Coverage" --results-directory TestResults
+
+      - name: EF model has no pending changes
+        run: dotnet ef migrations has-pending-model-changes -p src/PizzaStore.Infrastructure -s src/PizzaStore.Api --no-build --configuration Release
+
+      - name: Upload coverage
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-coverage
+          path: TestResults/**/coverage.cobertura.xml
+          if-no-files-found: ignore
+
+  frontend:
+    name: Frontend (web)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - run: npm ci
+
+      - name: Generated API client is up to date
+        run: |
+          npm run gen:api
+          git diff --exit-code -- src/api || (echo "::error::src/api is stale. Run 'npm run gen:api' and commit it." && exit 1)
+
+      - run: npm run lint
+      - run: npm run coverage
+      - run: npm run build

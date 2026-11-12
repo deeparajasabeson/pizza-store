@@ -17,7 +17,7 @@ description: Add or change a Minimal API endpoint with validation, authorization
 6. **OpenAPI** — `.WithName(...)`, `.WithSummary(...)`, `.Produces...` where `TypedResults` isn't enough. Name drives the generated client method.
 7. **Caching for polled reads** — for status-style endpoints, return an `ETag` and honor `If-None-Match` with 304 (see order status in CLAUDE.md).
 8. **Never accept prices or totals from the client.**
-9. **Tests** in `tests/PizzaStore.IntegrationTests/` using `WebApplicationFactory` + Testcontainers:
+9. **Tests** in `tests/PizzaStore.IntegrationTests/` using `WebApplicationFactory` against the per-run test database on the local SQL Server instance (see *Database* in CLAUDE.md; no Docker):
    - happy path
    - validation failure (400)
    - unauthenticated (401)
